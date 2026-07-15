@@ -38,6 +38,10 @@ button, input, textarea { font: inherit; }
 .workspace-head { max-width: 1480px; margin: 0 auto 24px; display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
 .workspace-head h2.ant-typography { margin: 8px 0 2px; font-size: 28px; letter-spacing: -.035em; color: #172033; }
 .eyebrow { display: flex; align-items: center; gap: 7px; color: var(--theme); font-size: 11px; font-weight: 750; letter-spacing: .14em; }
+.role-filter { min-width: 250px; height: 38px; padding-left: 11px; display: flex; align-items: center; gap: 7px; color: #687386; background: #fff; border: 1px solid #d9dfe8; border-radius: 10px; }
+.role-filter:focus-within { border-color: #2f54eb; box-shadow: 0 0 0 2px rgba(47,84,235,.1); }
+.role-filter .ant-select { min-width: 210px; flex: 1; }
+.role-filter .ant-select-selector { padding-inline: 0 !important; border: 0 !important; box-shadow: none !important; }
 .canvas-wrap { max-width: 100%; overflow-x: auto; padding: 0 0 18px; }
 .flow-canvas { min-width: 0; min-height: 620px; margin: 0 auto; padding: 42px; background: #f8f9fc; border: 1px solid #e3e7ef; border-radius: 20px; box-shadow: 0 16px 50px rgba(41,51,75,.08); }
 .flow-hero { width: 100%; display: flex; justify-content: space-between; align-items: flex-end; gap: 40px; padding: 2px 4px 32px; border-bottom: 1px solid #e3e7ef; }
@@ -63,11 +67,15 @@ button, input, textarea { font: inherit; }
 .node-card:hover { border-color: color-mix(in srgb, var(--column-theme) 34%, #e8ebf1); box-shadow: 0 5px 16px rgba(34,44,67,.07); transform: translateY(-1px); }
 .node-card.previewable { cursor: pointer; }
 .node-card.previewable:focus-visible { outline: 3px solid color-mix(in srgb, var(--column-theme) 28%, transparent); outline-offset: 2px; }
-.node-topline { min-height: 24px; display: flex; align-items: flex-start; justify-content: flex-end; gap: 5px; }
+.node-topline { min-height: 24px; display: flex; align-items: flex-start; justify-content: space-between; gap: 5px; }
 .node-topline:empty { display: none; }
 .node-topline .ant-tag { margin: 0; font-size: 10px; line-height: 20px; border-radius: 5px; }
-.node-tags { margin-top: 11px; display: flex; flex-wrap: wrap; gap: 4px; min-height: 20px; }
-.node-tags .ant-tag { margin: 0; font-size: 10px; line-height: 20px; border-radius: 5px; }
+.node-card-tags { min-width: 0; display: flex; flex-wrap: wrap; gap: 4px; }
+.node-roles { margin-top: 11px; display: flex; flex-wrap: wrap; gap: 4px; min-height: 20px; }
+.node-roles .ant-tag { margin: 0; font-size: 10px; line-height: 20px; border-radius: 5px; }
+.node-card.role-match { border-color: color-mix(in srgb, var(--column-theme) 78%, white); box-shadow: 0 0 0 3px color-mix(in srgb, var(--column-theme) 17%, transparent), 0 8px 20px rgba(34,44,67,.1); transform: translateY(-2px); }
+.node-card.role-dim { opacity: .34; filter: grayscale(.65); }
+.node-card.role-dim:hover { opacity: .55; }
 .node-actions { opacity: 0; margin: -5px -7px 0 0; transition: opacity .15s; }
 .node-card:hover .node-actions, .node-actions:focus-within { opacity: 1; }
 .node-actions .ant-btn { width: 25px; padding: 0; }

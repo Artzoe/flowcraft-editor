@@ -38,7 +38,6 @@ import {
   FileText,
   History,
   Layers3,
-  Library,
   LockKeyhole,
   LogOut,
   Pencil,
@@ -47,15 +46,17 @@ import {
   Save,
   Share2,
   Sparkles,
+  Tags,
   Trash2,
   UploadCloud,
+  Users,
 } from "lucide-react";
 import { toPng } from "html-to-image";
 
 type ThemeColor = { name: string; color: string; soft: string };
 type Label = { id: string; name: string; color: string };
 type Attachment = { id: string; name: string; type: string; size: number; dataUrl: string };
-type NodeItem = { id: string; labelIds?: string[]; title: string; subtitle?: string; detail?: string; attachments?: Attachment[] };
+type NodeItem = { id: string; labelIds?: string[]; tagIds?: string[]; title: string; subtitle?: string; detail?: string; attachments?: Attachment[] };
 type ColumnItem = { id: string; title: string; subtitle?: string; theme: string; nodes: NodeItem[] };
 type FlowMeta = { title: string; subtitle?: string };
 type VersionSnapshot = {
@@ -65,6 +66,7 @@ type VersionSnapshot = {
   meta: FlowMeta;
   columns: ColumnItem[];
   labels: Label[];
+  tags?: Label[];
 };
 type FlowDocument = {
   id: string;
@@ -72,6 +74,7 @@ type FlowDocument = {
   meta: FlowMeta;
   columns: ColumnItem[];
   labels: Label[];
+  tags?: Label[];
   versions: VersionSnapshot[];
   currentVersion: string;
 };
@@ -154,7 +157,7 @@ const decodeShare = (value: string) => {
   const normalized = value.replaceAll("-", "+").replaceAll("_", "/");
   const binary = atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "="));
   const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
-  return JSON.parse(new TextDecoder().decode(bytes)) as Pick<FlowDocument, "id" | "meta" | "columns" | "labels" | "currentVersion">;
+  return JSON.parse(new TextDecoder().decode(bytes)) as Pick<FlowDocument, "id" | "meta" | "columns" | "labels" | "tags" | "currentVersion">;
 };
 const fileToAttachment = (file: File) => new Promise<Attachment>((resolve, reject) => {
   const reader = new FileReader();
@@ -170,6 +173,7 @@ const createFlowDocument = (meta: FlowMeta, columns: ColumnItem[], labels: Label
     meta: clone(meta),
     columns: clone(columns),
     labels: clone(labels),
+    tags: [],
   };
   return {
     id: uid("flow"),
@@ -177,6 +181,7 @@ const createFlowDocument = (meta: FlowMeta, columns: ColumnItem[], labels: Label
     meta: clone(meta),
     columns: clone(columns),
     labels: clone(labels),
+    tags: [],
     versions: [version],
     currentVersion: version.version,
   };
@@ -187,10 +192,13 @@ function FlowEditor() {
   const [meta, setMeta] = useState<FlowMeta>(initialMeta);
   const [columns, setColumns] = useState<ColumnItem[]>(initialColumns);
   const [labels, setLabels] = useState<Label[]>(initialLabels);
+  const [nodeTags, setNodeTags] = useState<Label[]>([]);
   const [metaOpen, setMetaOpen] = useState(false);
   const [columnOpen, setColumnOpen] = useState(false);
   const [nodeOpen, setNodeOpen] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
+  const [tagLibraryOpen, setTagLibraryOpen] = useState(false);
+  const [editingTagId, setEditingTagId] = useState<string>();
   const [versionOpen, setVersionOpen] = useState(false);
   const [newFlowOpen, setNewFlowOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
@@ -205,7 +213,8 @@ function FlowEditor() {
   const [shareMode, setShareMode] = useState(false);
   const [editingColumnId, setEditingColumnId] = useState<string>();
   const [editingNode, setEditingNode] = useState<{ columnId: string; nodeId?: string }>();
-  const [previewNode, setPreviewNode] = useState<{ node: NodeItem; labels: Label[] }>();
+  const [previewNode, setPreviewNode] = useState<{ node: NodeItem; roles: Label[]; tags: Label[] }>();
+  const [roleFilter, setRoleFilter] = useState<string[]>([]);
   const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
   const [view, setView] = useState<"编辑视图" | "展示视图">("编辑视图");
   const [exporting, setExporting] = useState(false);
@@ -213,6 +222,7 @@ function FlowEditor() {
   const [columnForm] = Form.useForm();
   const [nodeForm] = Form.useForm();
   const [tagForm] = Form.useForm();
+  const [nodeTagForm] = Form.useForm();
   const [newFlowForm] = Form.useForm();
   const [loginForm] = Form.useForm();
   const watchedColumnTheme = Form.useWatch("theme", columnForm);
@@ -234,6 +244,7 @@ function FlowEditor() {
         setMeta(clone(sharedDocument.meta));
         setColumns(clone(sharedDocument.columns));
         setLabels(clone(sharedDocument.labels));
+        setNodeTags(clone(sharedDocument.tags ?? []));
         setVersions([]);
         setCurrentVersion(sharedDocument.currentVersion || "分享快照");
         setView("展示视图");
@@ -278,6 +289,7 @@ function FlowEditor() {
               meta: clone(active.meta),
               columns: clone(active.columns),
               labels: clone(active.labels),
+              tags: clone(active.tags ?? []),
               versions: parsed.versions,
               currentVersion: active.version,
             };
@@ -301,6 +313,7 @@ function FlowEditor() {
     setMeta(clone(initialDocument.meta));
     setColumns(clone(initialDocument.columns));
     setLabels(clone(initialDocument.labels));
+    setNodeTags(clone(initialDocument.tags ?? []));
     setVersions(clone(initialDocument.versions));
     setCurrentVersion(initialDocument.currentVersion);
     setWorkspaceReady(true);
@@ -314,6 +327,7 @@ function FlowEditor() {
         meta: clone(meta),
         columns: clone(columns),
         labels: clone(labels),
+        tags: clone(nodeTags),
         versions: clone(versions),
         currentVersion,
       } : item);
@@ -324,7 +338,7 @@ function FlowEditor() {
       }
       return next;
     });
-  }, [shareMode, workspaceReady, activeFlowId, meta, columns, labels, versions, currentVersion]);
+  }, [shareMode, workspaceReady, activeFlowId, meta, columns, labels, nodeTags, versions, currentVersion]);
 
   const editMode = isAuthenticated && !shareMode && view === "编辑视图";
   const columnTrackWidth = columns.length
@@ -357,7 +371,7 @@ function FlowEditor() {
 
   const shareCurrentFlow = async () => {
     try {
-      const payload = encodeShare({ id: activeFlowId, meta, columns, labels, currentVersion });
+      const payload = encodeShare({ id: activeFlowId, meta, columns, labels, tags: nodeTags, currentVersion });
       const link = `${window.location.origin}${window.location.pathname}${SHARE_PREFIX}${payload}`;
       if (link.length > MAX_SHARE_LENGTH) {
         message.error("附件体积过大，无法生成稳定的分享链接，请移除较大的附件后重试");
@@ -397,6 +411,8 @@ function FlowEditor() {
     setMeta(clone(document.meta));
     setColumns(clone(document.columns));
     setLabels(clone(document.labels));
+    setNodeTags(clone(document.tags ?? []));
+    setRoleFilter([]);
     setVersions(clone(document.versions));
     setCurrentVersion(document.currentVersion);
   };
@@ -415,6 +431,8 @@ function FlowEditor() {
       setMeta(clone(document.meta));
       setColumns([]);
       setLabels(clone(document.labels));
+      setNodeTags([]);
+      setRoleFilter([]);
       setVersions(clone(document.versions));
       setCurrentVersion(document.currentVersion);
       setNewFlowOpen(false);
@@ -433,6 +451,8 @@ function FlowEditor() {
     setMeta(clone(next.meta));
     setColumns(clone(next.columns));
     setLabels(clone(next.labels));
+    setNodeTags(clone(next.tags ?? []));
+    setRoleFilter([]);
     setVersions(clone(next.versions));
     setCurrentVersion(next.currentVersion);
     message.success("流程已删除");
@@ -451,6 +471,7 @@ function FlowEditor() {
       meta: clone(meta),
       columns: clone(columns),
       labels: clone(labels),
+      tags: clone(nodeTags),
     };
     setVersions((items) => [snapshot, ...items]);
     setCurrentVersion(nextVersion);
@@ -461,6 +482,8 @@ function FlowEditor() {
     setMeta(clone(snapshot.meta));
     setColumns(clone(snapshot.columns));
     setLabels(clone(snapshot.labels));
+    setNodeTags(clone(snapshot.tags ?? []));
+    setRoleFilter([]);
     setCurrentVersion(snapshot.version);
     setVersionOpen(false);
     message.success(`已回档到 ${snapshot.version}`);
@@ -518,7 +541,7 @@ function FlowEditor() {
 
   const openNode = (columnId: string, node?: NodeItem) => {
     setEditingNode({ columnId, nodeId: node?.id });
-    nodeForm.setFieldsValue({ labelIds: node?.labelIds ?? [], title: node?.title, subtitle: node?.subtitle, detail: node?.detail });
+    nodeForm.setFieldsValue({ tagIds: node?.tagIds ?? [], labelIds: node?.labelIds ?? [], title: node?.title, subtitle: node?.subtitle, detail: node?.detail });
     setPendingAttachments(clone(node?.attachments ?? []));
     setNodeOpen(true);
   };
@@ -559,7 +582,7 @@ function FlowEditor() {
     setLabels((items) => [...items, { id: uid("tag"), name: values.name, color: typeof values.color === "string" ? values.color : values.color.toHexString() }]);
     tagForm.resetFields();
     tagForm.setFieldValue("color", "#2F54EB");
-    message.success("标签已添加");
+    message.success("角色已添加");
   };
 
   const deleteLabel = (labelId: string) => {
@@ -571,8 +594,48 @@ function FlowEditor() {
         labelIds: node.labelIds?.filter((id) => id !== labelId),
       })),
     })));
+    setRoleFilter((items) => items.filter((id) => id !== labelId));
+    message.success("角色已删除");
+  };
+
+  const openTagEditor = (tag?: Label) => {
+    setEditingTagId(tag?.id);
+    nodeTagForm.setFieldsValue({ name: tag?.name, color: tag?.color ?? "#2F54EB" });
+  };
+
+  const saveNodeTag = async () => {
+    const values = await nodeTagForm.validateFields();
+    const color = typeof values.color === "string" ? values.color : values.color.toHexString();
+    if (editingTagId) {
+      setNodeTags((items) => items.map((item) => item.id === editingTagId ? { ...item, name: values.name, color } : item));
+      message.success("标签已更新");
+    } else {
+      setNodeTags((items) => [...items, { id: uid("node-tag"), name: values.name, color }]);
+      message.success("标签已添加");
+    }
+    setEditingTagId(undefined);
+    nodeTagForm.resetFields();
+    nodeTagForm.setFieldValue("color", "#2F54EB");
+  };
+
+  const deleteNodeTag = (tagId: string) => {
+    setNodeTags((items) => items.filter((item) => item.id !== tagId));
+    setColumns((items) => items.map((column) => ({
+      ...column,
+      nodes: column.nodes.map((node) => ({ ...node, tagIds: node.tagIds?.filter((id) => id !== tagId) })),
+    })));
+    if (editingTagId === tagId) openTagEditor();
     message.success("标签已删除");
   };
+
+  const roleFilterOptions = labels
+    .filter((role) => columns.some((column) => column.nodes.some((node) => node.labelIds?.includes(role.id))))
+    .map((role) => ({ value: role.id, label: role.name }));
+
+  useEffect(() => {
+    const availableRoleIds = new Set(roleFilterOptions.map((option) => option.value));
+    setRoleFilter((items) => items.filter((id) => availableRoleIds.has(id)));
+  }, [columns, labels]);
 
   const exportPng = async () => {
     if (!canvasRef.current) return;
@@ -687,12 +750,24 @@ function FlowEditor() {
             <Typography.Title level={2}>流程展示编辑器</Typography.Title>
             <Typography.Text type="secondary">将复杂流程整理成清晰、易读、可分享的横向图谱。</Typography.Text>
           </div>
-          {editMode && (
-            <Space>
-              <Button icon={<Library size={16} />} onClick={() => setLibraryOpen(true)}>标签库</Button>
-              <Button type="primary" ghost icon={<Plus size={16} />} onClick={() => openColumn()}>添加流程列</Button>
-            </Space>
-          )}
+          <Flex gap={10} align="center" wrap>
+            <div className="role-filter">
+              <Users size={16} />
+              <Select
+                mode="multiple"
+                allowClear
+                maxTagCount="responsive"
+                value={roleFilter}
+                onChange={setRoleFilter}
+                placeholder="按角色筛选"
+                options={roleFilterOptions}
+                notFoundContent="当前流程暂无角色"
+              />
+            </div>
+            {editMode && <Button icon={<Users size={16} />} onClick={() => setLibraryOpen(true)}>角色库</Button>}
+            {editMode && <Button icon={<Tags size={16} />} onClick={() => { openTagEditor(); setTagLibraryOpen(true); }}>标签库</Button>}
+            {editMode && <Button type="primary" ghost icon={<Plus size={16} />} onClick={() => openColumn()}>添加流程列</Button>}
+          </Flex>
         </div>
 
         <section className="canvas-wrap">
@@ -731,25 +806,30 @@ function FlowEditor() {
                       </div>
                       <div className="node-list">
                         {column.nodes.length ? column.nodes.map((node, nodeIndex) => {
-                          const nodeLabels = labels.filter((item) => node.labelIds?.includes(item.id));
+                          const nodeRoles = labels.filter((item) => node.labelIds?.includes(item.id));
+                          const nodeTagItems = nodeTags.filter((item) => node.tagIds?.includes(item.id));
+                          const roleMatched = !roleFilter.length || roleFilter.some((id) => node.labelIds?.includes(id));
                           return (
                             <div className="node-sequence" key={node.id}>
                               <article
-                                className="node-card previewable"
+                                className={`node-card previewable ${roleFilter.length ? roleMatched ? "role-match" : "role-dim" : ""}`}
                                 role="button"
                                 tabIndex={0}
-                                onClick={() => setPreviewNode({ node, labels: nodeLabels })}
+                                onClick={() => setPreviewNode({ node, roles: nodeRoles, tags: nodeTagItems })}
                                 onKeyDown={(event) => {
                                   if (event.key === "Enter" || event.key === " ") {
                                     event.preventDefault();
-                                    setPreviewNode({ node, labels: nodeLabels });
+                                    setPreviewNode({ node, roles: nodeRoles, tags: nodeTagItems });
                                   }
                                 }}
                               >
                                 <div className="node-topline">
+                                  <div className="node-card-tags">
+                                    {nodeTagItems.map((tag) => <Tag key={tag.id} color={tag.color}>{tag.name}</Tag>)}
+                                  </div>
                                   {editMode && (
                                     <Space size={0} data-export-hide="true" className="node-actions" onClick={(event) => event.stopPropagation()}>
-                                      <Tooltip title="查看详情"><Button type="text" size="small" icon={<Eye size={14} />} onClick={() => setPreviewNode({ node, labels: nodeLabels })} /></Tooltip>
+                                      <Tooltip title="查看详情"><Button type="text" size="small" icon={<Eye size={14} />} onClick={() => setPreviewNode({ node, roles: nodeRoles, tags: nodeTagItems })} /></Tooltip>
                                       <Tooltip title="上移"><Button type="text" size="small" disabled={nodeIndex === 0} icon={<ArrowUp size={14} />} onClick={() => moveNode(column.id, node.id, -1)} /></Tooltip>
                                       <Tooltip title="下移"><Button type="text" size="small" disabled={nodeIndex === column.nodes.length - 1} icon={<ArrowDown size={14} />} onClick={() => moveNode(column.id, node.id, 1)} /></Tooltip>
                                       <Tooltip title="编辑"><Button type="text" size="small" icon={<Pencil size={14} />} onClick={() => openNode(column.id, node)} /></Tooltip>
@@ -771,9 +851,9 @@ function FlowEditor() {
                                     ))}
                                   </div>
                                 )}
-                                {!!nodeLabels.length && (
-                                  <div className="node-tags">
-                                    {nodeLabels.map((label) => <Tag key={label.id} color={label.color}>{label.name}</Tag>)}
+                                {!!nodeRoles.length && (
+                                  <div className="node-roles">
+                                    {nodeRoles.map((role) => <Tag key={role.id} color={role.color}>{role.name}</Tag>)}
                                   </div>
                                 )}
                               </article>
@@ -866,6 +946,12 @@ function FlowEditor() {
 
       <Modal title={editingNode?.nodeId ? "编辑子节点" : "添加子节点"} open={nodeOpen} onCancel={() => setNodeOpen(false)} onOk={saveNode} okText={editingNode?.nodeId ? "保存" : "添加"} cancelText="取消" width={500}>
         <Form form={nodeForm} layout="vertical" requiredMark="optional" className="modal-form">
+          <Form.Item label="标签">
+            <Flex gap={8}>
+              <Form.Item name="tagIds" noStyle><Select mode="multiple" allowClear maxTagCount="responsive" placeholder="从标签库选择，可多选" className="grow" options={nodeTags.map((item) => ({ value: item.id, label: item.name }))} optionRender={(option) => { const tag = nodeTags.find((item) => item.id === option.value); return tag ? <Tag color={tag.color}>{tag.name}</Tag> : option.label; }} /></Form.Item>
+              <Button icon={<Tags size={15} />} onClick={() => { openTagEditor(); setTagLibraryOpen(true); }}>管理</Button>
+            </Flex>
+          </Form.Item>
           <Form.Item name="title" label="标题" rules={[{ required: true, message: "请输入子节点标题" }]}><Input placeholder="例如：高保真原型" /></Form.Item>
           <Form.Item name="subtitle" label="副标题"><Input.TextArea placeholder="补充说明（选填）" autoSize={{ minRows: 2, maxRows: 4 }} /></Form.Item>
           <Form.Item name="detail" label="详情" rules={[{ max: 200, message: "详情最多输入 200 个字" }]}>
@@ -892,10 +978,10 @@ function FlowEditor() {
               </div>
             )}
           </Form.Item>
-          <Form.Item label="标签">
+          <Form.Item label="角色" required>
             <Flex gap={8}>
-              <Form.Item name="labelIds" noStyle><Select mode="multiple" allowClear maxTagCount="responsive" placeholder="从标签库选择，可多选" className="grow" options={labels.map((item) => ({ value: item.id, label: item.name }))} optionRender={(option) => { const label = labels.find((item) => item.id === option.value); return label ? <Tag color={label.color}>{label.name}</Tag> : option.label; }} /></Form.Item>
-              <Button icon={<Library size={15} />} onClick={() => setLibraryOpen(true)}>管理</Button>
+              <Form.Item name="labelIds" noStyle rules={[{ required: true, type: "array", min: 1, message: "请至少选择一个角色" }]}><Select mode="multiple" allowClear maxTagCount="responsive" placeholder="从角色库选择，可多选" className="grow" options={labels.map((item) => ({ value: item.id, label: item.name }))} optionRender={(option) => { const role = labels.find((item) => item.id === option.value); return role ? <Tag color={role.color}>{role.name}</Tag> : option.label; }} /></Form.Item>
+              <Button icon={<Users size={15} />} onClick={() => setLibraryOpen(true)}>管理</Button>
             </Flex>
           </Form.Item>
         </Form>
@@ -914,6 +1000,12 @@ function FlowEditor() {
               <div className="share-icon"><Eye size={20} /></div>
               <div><Typography.Title level={3}>{previewNode.node.title}</Typography.Title>{previewNode.node.subtitle && <Typography.Text type="secondary">{previewNode.node.subtitle}</Typography.Text>}</div>
             </div>
+            {!!previewNode.tags.length && (
+              <div className="node-preview-section preview-tags">
+                <Typography.Text className="preview-label">标签</Typography.Text>
+                <div>{previewNode.tags.map((tag) => <Tag key={tag.id} color={tag.color}>{tag.name}</Tag>)}</div>
+              </div>
+            )}
             {previewNode.node.detail && (
               <div className="node-preview-section"><Typography.Text className="preview-label">详情</Typography.Text><Typography.Paragraph>{previewNode.node.detail}</Typography.Paragraph></div>
             )}
@@ -927,10 +1019,10 @@ function FlowEditor() {
                 </div>
               </div>
             )}
-            {!!previewNode.labels.length && (
+            {!!previewNode.roles.length && (
               <div className="node-preview-section preview-tags">
-                <Typography.Text className="preview-label">标签</Typography.Text>
-                <div>{previewNode.labels.map((label) => <Tag key={label.id} color={label.color}>{label.name}</Tag>)}</div>
+                <Typography.Text className="preview-label">角色</Typography.Text>
+                <div>{previewNode.roles.map((role) => <Tag key={role.id} color={role.color}>{role.name}</Tag>)}</div>
               </div>
             )}
           </div>
@@ -945,20 +1037,44 @@ function FlowEditor() {
         <Input.TextArea value={shareLink} readOnly autoSize={{ minRows: 3, maxRows: 5 }} onFocus={(event) => event.currentTarget.select()} />
       </Modal>
 
-      <Modal title="标签库" open={libraryOpen} onCancel={() => setLibraryOpen(false)} footer={<Button type="primary" onClick={() => setLibraryOpen(false)}>完成</Button>} width={560}>
+      <Modal title="角色库" open={libraryOpen} onCancel={() => setLibraryOpen(false)} footer={<Button type="primary" onClick={() => setLibraryOpen(false)}>完成</Button>} width={560}>
         <Form form={tagForm} initialValues={{ color: "#2F54EB" }} layout="vertical" className="tag-creator">
-          <Typography.Text strong>新增标签</Typography.Text>
+          <Typography.Text strong>新增角色</Typography.Text>
           <Flex gap={8} align="start" className="tag-create-row">
-            <Form.Item name="name" rules={[{ required: true, message: "请输入标签名" }, { max: 12, message: "最多 12 个字" }]}><Input placeholder="标签名" maxLength={12} /></Form.Item>
+            <Form.Item name="name" rules={[{ required: true, message: "请输入角色名" }, { max: 12, message: "最多 12 个字" }]}><Input placeholder="角色名" maxLength={12} /></Form.Item>
             <Form.Item name="color" rules={[{ required: true }]}><ColorPicker showText /></Form.Item>
             <Button type="primary" icon={<Plus size={15} />} onClick={addLabel}>添加</Button>
           </Flex>
         </Form>
         <Divider />
-        <div className="library-head"><Typography.Text strong>全部标签</Typography.Text><Typography.Text type="secondary">{labels.length} 个</Typography.Text></div>
+        <div className="library-head"><Typography.Text strong>全部角色</Typography.Text><Typography.Text type="secondary">{labels.length} 个</Typography.Text></div>
         <div className="tag-library">
           {labels.length ? labels.map((label) => (
-            <div className="tag-row" key={label.id}><Tag color={label.color}>{label.name}</Tag><Popconfirm title="删除后，节点将不再显示此标签" okText="删除" cancelText="取消" onConfirm={() => deleteLabel(label.id)}><Button type="text" danger icon={<Trash2 size={15} />} /></Popconfirm></div>
+            <div className="tag-row" key={label.id}><Tag color={label.color}>{label.name}</Tag><Popconfirm title="删除后，节点将不再关联此角色" okText="删除" cancelText="取消" onConfirm={() => deleteLabel(label.id)}><Button type="text" danger icon={<Trash2 size={15} />} /></Popconfirm></div>
+          )) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有角色" />}
+        </div>
+      </Modal>
+
+      <Modal title="标签库" open={tagLibraryOpen} onCancel={() => { setTagLibraryOpen(false); openTagEditor(); }} footer={<Button type="primary" onClick={() => { setTagLibraryOpen(false); openTagEditor(); }}>完成</Button>} width={560}>
+        <Form form={nodeTagForm} initialValues={{ color: "#2F54EB" }} layout="vertical" className="tag-creator">
+          <Typography.Text strong>{editingTagId ? "编辑标签" : "新增标签"}</Typography.Text>
+          <Flex gap={8} align="start" className="tag-create-row">
+            <Form.Item name="name" rules={[{ required: true, message: "请输入标签名" }, { max: 12, message: "最多 12 个字" }]}><Input placeholder="标签名" maxLength={12} /></Form.Item>
+            <Form.Item name="color" rules={[{ required: true }]}><ColorPicker showText /></Form.Item>
+            <Button type="primary" icon={editingTagId ? <Save size={15} /> : <Plus size={15} />} onClick={saveNodeTag}>{editingTagId ? "保存" : "添加"}</Button>
+          </Flex>
+        </Form>
+        <Divider />
+        <div className="library-head"><Typography.Text strong>全部标签</Typography.Text><Typography.Text type="secondary">{nodeTags.length} 个</Typography.Text></div>
+        <div className="tag-library">
+          {nodeTags.length ? nodeTags.map((tag) => (
+            <div className="tag-row" key={tag.id}>
+              <Tag color={tag.color}>{tag.name}</Tag>
+              <Space size={0}>
+                <Button type="text" icon={<Pencil size={15} />} onClick={() => openTagEditor(tag)} aria-label={`编辑 ${tag.name}`} />
+                <Popconfirm title="删除后，节点将不再显示此标签" okText="删除" cancelText="取消" onConfirm={() => deleteNodeTag(tag.id)}><Button type="text" danger icon={<Trash2 size={15} />} /></Popconfirm>
+              </Space>
+            </div>
           )) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="还没有标签" />}
         </div>
       </Modal>

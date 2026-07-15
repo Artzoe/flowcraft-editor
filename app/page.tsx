@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   App,
   Button,
@@ -28,13 +28,17 @@ import {
   ArrowRight,
   ArrowUp,
   Check,
+  ChevronDown,
   CircleHelp,
   Download,
   Ellipsis,
+  History,
   Layers3,
   Library,
   Pencil,
   Plus,
+  RotateCcw,
+  Save,
   Sparkles,
   Trash2,
 } from "lucide-react";
@@ -42,9 +46,26 @@ import { toPng } from "html-to-image";
 
 type ThemeColor = { name: string; color: string; soft: string };
 type Label = { id: string; name: string; color: string };
-type NodeItem = { id: string; labelId?: string; title: string; subtitle?: string };
-type ColumnItem = { id: string; title: string; subtitle?: string; nodes: NodeItem[] };
-type FlowMeta = { title: string; subtitle?: string; theme: string };
+type NodeItem = { id: string; labelIds?: string[]; title: string; subtitle?: string };
+type ColumnItem = { id: string; title: string; subtitle?: string; theme: string; nodes: NodeItem[] };
+type FlowMeta = { title: string; subtitle?: string };
+type VersionSnapshot = {
+  id: string;
+  version: string;
+  createdAt: string;
+  meta: FlowMeta;
+  columns: ColumnItem[];
+  labels: Label[];
+};
+type FlowDocument = {
+  id: string;
+  createdAt: string;
+  meta: FlowMeta;
+  columns: ColumnItem[];
+  labels: Label[];
+  versions: VersionSnapshot[];
+  currentVersion: string;
+};
 
 const themes: ThemeColor[] = [
   { name: "曜石蓝", color: "#2F54EB", soft: "#EEF2FF" },
@@ -68,43 +89,76 @@ const initialColumns: ColumnItem[] = [
     id: "col-1",
     title: "需求洞察",
     subtitle: "定义问题与成功标准",
+    theme: themes[0].color,
     nodes: [
-      { id: "node-1", labelId: "tag-1", title: "用户访谈", subtitle: "收集真实场景与核心痛点" },
-      { id: "node-2", labelId: "tag-3", title: "需求归类", subtitle: "按优先级整理需求池" },
+      { id: "node-1", labelIds: ["tag-1", "tag-3"], title: "用户访谈", subtitle: "收集真实场景与核心痛点" },
+      { id: "node-2", labelIds: ["tag-3"], title: "需求归类", subtitle: "按优先级整理需求池" },
     ],
   },
   {
     id: "col-2",
     title: "方案设计",
     subtitle: "形成可验证的解决方案",
+    theme: themes[5].color,
     nodes: [
-      { id: "node-3", labelId: "tag-2", title: "流程草图", subtitle: "梳理关键路径和异常分支" },
-      { id: "node-4", labelId: "tag-1", title: "高保真原型", subtitle: "完成核心页面交互" },
-      { id: "node-5", labelId: "tag-3", title: "设计评审", subtitle: "确认范围、风险与交付标准" },
+      { id: "node-3", labelIds: ["tag-2"], title: "流程草图", subtitle: "梳理关键路径和异常分支" },
+      { id: "node-4", labelIds: ["tag-1", "tag-2"], title: "高保真原型", subtitle: "完成核心页面交互" },
+      { id: "node-5", labelIds: ["tag-3"], title: "设计评审", subtitle: "确认范围、风险与交付标准" },
     ],
   },
   {
     id: "col-3",
     title: "开发交付",
     subtitle: "实现、测试并发布",
+    theme: themes[1].color,
     nodes: [
-      { id: "node-6", labelId: "tag-2", title: "功能开发", subtitle: "按迭代计划实现功能" },
-      { id: "node-7", labelId: "tag-4", title: "验收上线", subtitle: "验证指标并持续复盘" },
+      { id: "node-6", labelIds: ["tag-2"], title: "功能开发", subtitle: "按迭代计划实现功能" },
+      { id: "node-7", labelIds: ["tag-3", "tag-4"], title: "验收上线", subtitle: "验证指标并持续复盘" },
     ],
   },
 ];
 
+const initialMeta: FlowMeta = { title: "产品设计交付流程", subtitle: "从需求洞察到稳定上线的协作路径" };
+const LEGACY_VERSION_STORAGE_KEY = "flowcraft-version-history";
+const WORKSPACE_STORAGE_KEY = "flowcraft-multi-flow-workspace";
 const uid = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
+const createFlowDocument = (meta: FlowMeta, columns: ColumnItem[], labels: Label[]): FlowDocument => {
+  const version: VersionSnapshot = {
+    id: uid("version"),
+    version: "v1.0.0",
+    createdAt: new Date().toISOString(),
+    meta: clone(meta),
+    columns: clone(columns),
+    labels: clone(labels),
+  };
+  return {
+    id: uid("flow"),
+    createdAt: new Date().toISOString(),
+    meta: clone(meta),
+    columns: clone(columns),
+    labels: clone(labels),
+    versions: [version],
+    currentVersion: version.version,
+  };
+};
 
 function FlowEditor() {
   const { message } = App.useApp();
-  const [meta, setMeta] = useState<FlowMeta>({ title: "产品设计交付流程", subtitle: "从需求洞察到稳定上线的协作路径", theme: themes[0].color });
+  const [meta, setMeta] = useState<FlowMeta>(initialMeta);
   const [columns, setColumns] = useState<ColumnItem[]>(initialColumns);
   const [labels, setLabels] = useState<Label[]>(initialLabels);
   const [metaOpen, setMetaOpen] = useState(false);
   const [columnOpen, setColumnOpen] = useState(false);
   const [nodeOpen, setNodeOpen] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
+  const [versionOpen, setVersionOpen] = useState(false);
+  const [newFlowOpen, setNewFlowOpen] = useState(false);
+  const [versions, setVersions] = useState<VersionSnapshot[]>([]);
+  const [currentVersion, setCurrentVersion] = useState("v1.0.0");
+  const [flowDocs, setFlowDocs] = useState<FlowDocument[]>([]);
+  const [activeFlowId, setActiveFlowId] = useState("");
+  const [workspaceReady, setWorkspaceReady] = useState(false);
   const [editingColumnId, setEditingColumnId] = useState<string>();
   const [editingNode, setEditingNode] = useState<{ columnId: string; nodeId?: string }>();
   const [view, setView] = useState<"编辑视图" | "展示视图">("编辑视图");
@@ -113,11 +167,172 @@ function FlowEditor() {
   const [columnForm] = Form.useForm();
   const [nodeForm] = Form.useForm();
   const [tagForm] = Form.useForm();
-  const watchedTheme = Form.useWatch("theme", metaForm);
+  const [newFlowForm] = Form.useForm();
+  const watchedColumnTheme = Form.useWatch("theme", columnForm);
   const canvasRef = useRef<HTMLDivElement>(null);
 
-  const theme = useMemo(() => themes.find((item) => item.color === meta.theme) ?? themes[0], [meta.theme]);
+  useEffect(() => {
+    let initialDocument: FlowDocument | undefined;
+    let initialDocuments: FlowDocument[] = [];
+    let initialActiveId = "";
+
+    try {
+      const savedWorkspace = window.localStorage.getItem(WORKSPACE_STORAGE_KEY);
+      if (savedWorkspace) {
+        const parsed = JSON.parse(savedWorkspace) as { activeFlowId: string; flowDocs: FlowDocument[] };
+        if (parsed.flowDocs?.length) {
+          initialDocuments = parsed.flowDocs;
+          initialDocument = parsed.flowDocs.find((item) => item.id === parsed.activeFlowId) ?? parsed.flowDocs[0];
+          initialActiveId = initialDocument.id;
+        }
+      }
+    } catch {
+      // Continue with legacy data or a fresh workspace.
+    }
+
+    if (!initialDocument) {
+      try {
+        const legacy = window.localStorage.getItem(LEGACY_VERSION_STORAGE_KEY);
+        if (legacy) {
+          const parsed = JSON.parse(legacy) as { currentVersion: string; versions: VersionSnapshot[] };
+          const active = parsed.versions.find((item) => item.version === parsed.currentVersion) ?? parsed.versions[0];
+          if (active) {
+            initialDocument = {
+              id: uid("flow"),
+              createdAt: new Date().toISOString(),
+              meta: clone(active.meta),
+              columns: clone(active.columns),
+              labels: clone(active.labels),
+              versions: parsed.versions,
+              currentVersion: active.version,
+            };
+            initialDocuments = [initialDocument];
+            initialActiveId = initialDocument.id;
+          }
+        }
+      } catch {
+        // Strict file:// modes may block storage; a session workspace still works.
+      }
+    }
+
+    if (!initialDocument) {
+      initialDocument = createFlowDocument(initialMeta, initialColumns, initialLabels);
+      initialDocuments = [initialDocument];
+      initialActiveId = initialDocument.id;
+    }
+
+    setFlowDocs(initialDocuments);
+    setActiveFlowId(initialActiveId);
+    setMeta(clone(initialDocument.meta));
+    setColumns(clone(initialDocument.columns));
+    setLabels(clone(initialDocument.labels));
+    setVersions(clone(initialDocument.versions));
+    setCurrentVersion(initialDocument.currentVersion);
+    setWorkspaceReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!workspaceReady || !activeFlowId || !flowDocs.length) return;
+    setFlowDocs((items) => {
+      const next = items.map((item) => item.id === activeFlowId ? {
+        ...item,
+        meta: clone(meta),
+        columns: clone(columns),
+        labels: clone(labels),
+        versions: clone(versions),
+        currentVersion,
+      } : item);
+      try {
+        window.localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify({ activeFlowId, flowDocs: next }));
+      } catch {
+        // Keep the multi-flow workspace usable in strict offline modes.
+      }
+      return next;
+    });
+  }, [workspaceReady, activeFlowId, meta, columns, labels, versions, currentVersion]);
+
   const editMode = view === "编辑视图";
+  const columnTrackWidth = columns.length
+    ? columns.length * 318 + Math.max(0, columns.length - 1) * 62
+    : 636;
+  const exportWidth = Math.max(720, columnTrackWidth + 84);
+  const displayWidth = exportWidth + (editMode && columns.length ? 242 : 0);
+
+  const switchFlow = (flowId: string) => {
+    const document = flowDocs.find((item) => item.id === flowId);
+    if (!document || document.id === activeFlowId) return;
+    setActiveFlowId(document.id);
+    setMeta(clone(document.meta));
+    setColumns(clone(document.columns));
+    setLabels(clone(document.labels));
+    setVersions(clone(document.versions));
+    setCurrentVersion(document.currentVersion);
+  };
+
+  const openNewFlow = () => {
+    newFlowForm.resetFields();
+    setNewFlowOpen(true);
+  };
+
+  const createNewFlow = async () => {
+    try {
+      const values = await newFlowForm.validateFields() as FlowMeta;
+      const document = createFlowDocument(values, [], initialLabels);
+      setFlowDocs((items) => [...items, document]);
+      setActiveFlowId(document.id);
+      setMeta(clone(document.meta));
+      setColumns([]);
+      setLabels(clone(document.labels));
+      setVersions(clone(document.versions));
+      setCurrentVersion(document.currentVersion);
+      setNewFlowOpen(false);
+      message.success("新流程已创建");
+    } catch {
+      // Ant Design displays field validation messages.
+    }
+  };
+
+  const deleteCurrentFlow = () => {
+    if (flowDocs.length <= 1) return;
+    const remaining = flowDocs.filter((item) => item.id !== activeFlowId);
+    const next = remaining[0];
+    setFlowDocs(remaining);
+    setActiveFlowId(next.id);
+    setMeta(clone(next.meta));
+    setColumns(clone(next.columns));
+    setLabels(clone(next.labels));
+    setVersions(clone(next.versions));
+    setCurrentVersion(next.currentVersion);
+    message.success("流程已删除");
+  };
+
+  const saveVersion = () => {
+    const highestPatch = versions.reduce((max, item) => {
+      const patch = Number(item.version.split(".").at(-1));
+      return Number.isFinite(patch) ? Math.max(max, patch) : max;
+    }, 0);
+    const nextVersion = `v1.0.${highestPatch + 1}`;
+    const snapshot: VersionSnapshot = {
+      id: uid("version"),
+      version: nextVersion,
+      createdAt: new Date().toISOString(),
+      meta: clone(meta),
+      columns: clone(columns),
+      labels: clone(labels),
+    };
+    setVersions((items) => [snapshot, ...items]);
+    setCurrentVersion(nextVersion);
+    message.success(`${nextVersion} 已保存`);
+  };
+
+  const restoreVersion = (snapshot: VersionSnapshot) => {
+    setMeta(clone(snapshot.meta));
+    setColumns(clone(snapshot.columns));
+    setLabels(clone(snapshot.labels));
+    setCurrentVersion(snapshot.version);
+    setVersionOpen(false);
+    message.success(`已回档到 ${snapshot.version}`);
+  };
 
   const openMeta = () => {
     metaForm.setFieldsValue(meta);
@@ -133,7 +348,11 @@ function FlowEditor() {
 
   const openColumn = (column?: ColumnItem) => {
     setEditingColumnId(column?.id);
-    columnForm.setFieldsValue({ title: column?.title, subtitle: column?.subtitle });
+    columnForm.setFieldsValue({
+      title: column?.title,
+      subtitle: column?.subtitle,
+      theme: column?.theme ?? themes[columns.length % themes.length].color,
+    });
     setColumnOpen(true);
   };
 
@@ -167,7 +386,7 @@ function FlowEditor() {
 
   const openNode = (columnId: string, node?: NodeItem) => {
     setEditingNode({ columnId, nodeId: node?.id });
-    nodeForm.setFieldsValue({ labelId: node?.labelId, title: node?.title, subtitle: node?.subtitle });
+    nodeForm.setFieldsValue({ labelIds: node?.labelIds ?? [], title: node?.title, subtitle: node?.subtitle });
     setNodeOpen(true);
   };
 
@@ -212,7 +431,13 @@ function FlowEditor() {
 
   const deleteLabel = (labelId: string) => {
     setLabels((items) => items.filter((item) => item.id !== labelId));
-    setColumns((items) => items.map((column) => ({ ...column, nodes: column.nodes.map((node) => node.labelId === labelId ? { ...node, labelId: undefined } : node) })));
+    setColumns((items) => items.map((column) => ({
+      ...column,
+      nodes: column.nodes.map((node) => ({
+        ...node,
+        labelIds: node.labelIds?.filter((id) => id !== labelId),
+      })),
+    })));
     message.success("标签已删除");
   };
 
@@ -224,6 +449,12 @@ function FlowEditor() {
         cacheBust: true,
         pixelRatio: 2,
         backgroundColor: "#F5F7FB",
+        width: exportWidth,
+        height: canvasRef.current.scrollHeight,
+        style: {
+          width: `${exportWidth}px`,
+          minWidth: `${exportWidth}px`,
+        },
         filter: (node) => !(node instanceof HTMLElement && node.dataset.exportHide === "true"),
       });
       const link = document.createElement("a");
@@ -249,11 +480,29 @@ function FlowEditor() {
   });
 
   return (
-    <div className="app-shell" style={{ "--theme": theme.color, "--theme-soft": theme.soft } as React.CSSProperties}>
+    <div className="app-shell" style={{ "--theme": themes[0].color, "--theme-soft": themes[0].soft } as React.CSSProperties}>
       <header className="topbar">
-        <div className="brand"><span className="brand-mark"><Layers3 size={19} /></span><span>Flowcraft</span></div>
+        <div className="brand-zone">
+          <div className="brand"><span className="brand-mark"><Layers3 size={19} /></span><span>Flowcraft</span></div>
+          <div className="flow-switcher">
+            {workspaceReady ? (
+              <Select
+                value={activeFlowId || undefined}
+                onChange={switchFlow}
+                className="flow-select"
+                placeholder="选择流程"
+                options={flowDocs.map((item) => ({ value: item.id, label: item.meta.title }))}
+              />
+            ) : <Button className="flow-select" loading />}
+            <Tooltip title="新建流程"><Button icon={<Plus size={16} />} onClick={openNewFlow} aria-label="新建流程" /></Tooltip>
+            <Popconfirm title="删除当前流程？" description="该流程及其版本记录将被删除" okText="删除" cancelText="取消" disabled={flowDocs.length <= 1} onConfirm={deleteCurrentFlow}>
+              <Tooltip title={flowDocs.length <= 1 ? "至少保留一份流程" : "删除当前流程"}><Button danger disabled={flowDocs.length <= 1} icon={<Trash2 size={15} />} aria-label="删除当前流程" /></Tooltip>
+            </Popconfirm>
+          </div>
+        </div>
         <div className="toolbar-center"><Segmented value={view} onChange={setView} options={["编辑视图", "展示视图"]} /></div>
         <Space size={10}>
+          <Button className="version-button" icon={<History size={16} />} onClick={() => setVersionOpen(true)}>{currentVersion}</Button>
           <Tooltip title="编辑流程信息"><Button icon={<Pencil size={16} />} onClick={openMeta}>流程设置</Button></Tooltip>
           <Button type="primary" icon={<Download size={16} />} loading={exporting} onClick={exportPng}>导出 PNG</Button>
         </Space>
@@ -275,10 +524,9 @@ function FlowEditor() {
         </div>
 
         <section className="canvas-wrap">
-          <div className="flow-canvas" ref={canvasRef}>
+          <div className="flow-canvas" ref={canvasRef} style={{ width: displayWidth }}>
             <div className="flow-hero">
               <div className="hero-copy">
-                <span className="theme-pill"><span className="theme-dot" />{theme.name}</span>
                 <h1>{meta.title}</h1>
                 {meta.subtitle && <p>{meta.subtitle}</p>}
               </div>
@@ -288,40 +536,53 @@ function FlowEditor() {
             {columns.length ? (
               <div className="columns-track">
                 {columns.map((column, columnIndex) => (
-                  <div className="column" key={column.id}>
+                  <div
+                    className="column"
+                    key={column.id}
+                    style={{
+                      "--column-theme": column.theme,
+                      "--column-theme-soft": themes.find((item) => item.color === column.theme)?.soft ?? themes[0].soft,
+                    } as React.CSSProperties}
+                  >
                     <div className="column-card">
-                      <div className="column-head">
-                        <span className="step-no">{String(columnIndex + 1).padStart(2, "0")}</span>
-                        {editMode && (
-                          <Dropdown menu={columnMenu(column, columnIndex)} trigger={["click"]}>
-                            <Button data-export-hide="true" type="text" className="more-button" icon={<Ellipsis size={18} />} aria-label="流程列操作" />
-                          </Dropdown>
-                        )}
+                      <div className="column-header-panel">
+                        <div className="column-head">
+                          <span className="step-no">{String(columnIndex + 1).padStart(2, "0")}</span>
+                          {editMode && (
+                            <Dropdown menu={columnMenu(column, columnIndex)} trigger={["click"]}>
+                              <Button data-export-hide="true" type="text" className="more-button" icon={<Ellipsis size={18} />} aria-label="流程列操作" />
+                            </Dropdown>
+                          )}
+                        </div>
+                        <h2>{column.title}</h2>
+                        {column.subtitle && <p className="column-subtitle">{column.subtitle}</p>}
                       </div>
-                      <h2>{column.title}</h2>
-                      {column.subtitle && <p className="column-subtitle">{column.subtitle}</p>}
-                      <Divider />
                       <div className="node-list">
                         {column.nodes.length ? column.nodes.map((node, nodeIndex) => {
-                          const label = labels.find((item) => item.id === node.labelId);
+                          const nodeLabels = labels.filter((item) => node.labelIds?.includes(item.id));
                           return (
-                            <article className="node-card" key={node.id}>
-                              <div className="node-topline">
-                                {label ? <Tag color={label.color}>{label.name}</Tag> : <span />}
-                                {editMode && (
-                                  <Space size={0} data-export-hide="true" className="node-actions">
-                                    <Tooltip title="上移"><Button type="text" size="small" disabled={nodeIndex === 0} icon={<ArrowUp size={14} />} onClick={() => moveNode(column.id, node.id, -1)} /></Tooltip>
-                                    <Tooltip title="下移"><Button type="text" size="small" disabled={nodeIndex === column.nodes.length - 1} icon={<ArrowDown size={14} />} onClick={() => moveNode(column.id, node.id, 1)} /></Tooltip>
-                                    <Tooltip title="编辑"><Button type="text" size="small" icon={<Pencil size={14} />} onClick={() => openNode(column.id, node)} /></Tooltip>
-                                    <Popconfirm title="删除这个子节点？" okText="删除" cancelText="取消" onConfirm={() => deleteNode(column.id, node.id)}>
-                                      <Tooltip title="删除"><Button type="text" danger size="small" icon={<Trash2 size={14} />} /></Tooltip>
-                                    </Popconfirm>
-                                  </Space>
-                                )}
-                              </div>
-                              <h3>{node.title}</h3>
-                              {node.subtitle && <p>{node.subtitle}</p>}
-                            </article>
+                            <div className="node-sequence" key={node.id}>
+                              <article className="node-card">
+                                <div className="node-topline">
+                                  <div className="node-tags">
+                                    {nodeLabels.map((label) => <Tag key={label.id} color={label.color}>{label.name}</Tag>)}
+                                  </div>
+                                  {editMode && (
+                                    <Space size={0} data-export-hide="true" className="node-actions">
+                                      <Tooltip title="上移"><Button type="text" size="small" disabled={nodeIndex === 0} icon={<ArrowUp size={14} />} onClick={() => moveNode(column.id, node.id, -1)} /></Tooltip>
+                                      <Tooltip title="下移"><Button type="text" size="small" disabled={nodeIndex === column.nodes.length - 1} icon={<ArrowDown size={14} />} onClick={() => moveNode(column.id, node.id, 1)} /></Tooltip>
+                                      <Tooltip title="编辑"><Button type="text" size="small" icon={<Pencil size={14} />} onClick={() => openNode(column.id, node)} /></Tooltip>
+                                      <Popconfirm title="删除这个子节点？" okText="删除" cancelText="取消" onConfirm={() => deleteNode(column.id, node.id)}>
+                                        <Tooltip title="删除"><Button type="text" danger size="small" icon={<Trash2 size={14} />} /></Tooltip>
+                                      </Popconfirm>
+                                    </Space>
+                                  )}
+                                </div>
+                                <h3>{node.title}</h3>
+                                {node.subtitle && <p>{node.subtitle}</p>}
+                              </article>
+                              {nodeIndex < column.nodes.length - 1 && <div className="node-flow-arrow"><ChevronDown size={15} /></div>}
+                            </div>
                           );
                         }) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无子节点" />}
                       </div>
@@ -344,19 +605,49 @@ function FlowEditor() {
         <div className="tipline"><CircleHelp size={15} /> 提示：使用节点右上角按钮调整顺序；切换到展示视图可隐藏全部编辑控件。</div>
       </main>
 
+      <Modal title="新建流程" open={newFlowOpen} onCancel={() => setNewFlowOpen(false)} onOk={createNewFlow} okText="创建" cancelText="取消" width={500}>
+        <Form form={newFlowForm} layout="vertical" requiredMark="optional" className="modal-form">
+          <Form.Item name="title" label="主标题" rules={[{ required: true, message: "请输入流程主标题" }, { max: 32, message: "最多输入 32 个字" }]}><Input placeholder="例如：市场活动执行流程" showCount maxLength={32} /></Form.Item>
+          <Form.Item name="subtitle" label="副标题"><Input.TextArea placeholder="补充说明该流程的用途（选填）" autoSize={{ minRows: 2, maxRows: 4 }} showCount maxLength={80} /></Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title="版本记录"
+        open={versionOpen}
+        onCancel={() => setVersionOpen(false)}
+        width={560}
+        footer={[
+          <Button key="close" onClick={() => setVersionOpen(false)}>关闭</Button>,
+          <Button key="save" type="primary" icon={<Save size={15} />} onClick={saveVersion}>保存新版本</Button>,
+        ]}
+      >
+        <div className="version-summary">
+          <div><Typography.Text type="secondary">当前版本</Typography.Text><strong>{currentVersion}</strong></div>
+          <Typography.Text type="secondary">版本记录保存在当前浏览器中</Typography.Text>
+        </div>
+        <div className="version-list">
+          {versions.map((snapshot) => (
+            <div className={`version-row ${snapshot.version === currentVersion ? "current" : ""}`} key={snapshot.id}>
+              <div className="version-mark"><History size={16} /></div>
+              <div className="version-info">
+                <div><strong>{snapshot.version}</strong>{snapshot.version === currentVersion && <Tag color="blue">当前</Tag>}</div>
+                <span>{new Date(snapshot.createdAt).toLocaleString("zh-CN", { hour12: false })}</span>
+              </div>
+              {snapshot.version !== currentVersion && (
+                <Popconfirm title={`确认回档到 ${snapshot.version}？`} description="当前未保存的修改将被替换" okText="确认回档" cancelText="取消" onConfirm={() => restoreVersion(snapshot)}>
+                  <Button icon={<RotateCcw size={14} />}>回档</Button>
+                </Popconfirm>
+              )}
+            </div>
+          ))}
+        </div>
+      </Modal>
+
       <Modal title="流程设置" open={metaOpen} onCancel={() => setMetaOpen(false)} onOk={saveMeta} okText="保存" cancelText="取消" width={520}>
         <Form form={metaForm} layout="vertical" requiredMark="optional" className="modal-form">
           <Form.Item name="title" label="主标题" rules={[{ required: true, message: "请输入主标题" }, { max: 32, message: "最多输入 32 个字" }]}><Input placeholder="例如：产品设计交付流程" showCount maxLength={32} /></Form.Item>
           <Form.Item name="subtitle" label="副标题"><Input.TextArea placeholder="补充说明这个流程的目的（选填）" autoSize={{ minRows: 2, maxRows: 4 }} showCount maxLength={80} /></Form.Item>
-          <Form.Item name="theme" label="主题颜色" rules={[{ required: true, message: "请选择主题颜色" }]}>
-            <div className="theme-grid">
-              {themes.map((item) => (
-                <button key={item.color} type="button" className={`theme-choice ${watchedTheme === item.color ? "selected" : ""}`} onClick={() => { metaForm.setFieldValue("theme", item.color); metaForm.validateFields(["theme"]); }}>
-                  <span style={{ background: item.color }} />{item.name}{watchedTheme === item.color && <Check size={15} />}
-                </button>
-              ))}
-            </div>
-          </Form.Item>
         </Form>
       </Modal>
 
@@ -364,6 +655,15 @@ function FlowEditor() {
         <Form form={columnForm} layout="vertical" requiredMark="optional" className="modal-form">
           <Form.Item name="title" label="流程列标题" rules={[{ required: true, message: "请输入流程列标题" }]}><Input placeholder="例如：方案设计" /></Form.Item>
           <Form.Item name="subtitle" label="说明"><Input placeholder="简单说明这个阶段（选填）" /></Form.Item>
+          <Form.Item name="theme" label="主题颜色" rules={[{ required: true, message: "请选择主题颜色" }]}>
+            <div className="theme-grid">
+              {themes.map((item) => (
+                <button key={item.color} type="button" className={`theme-choice ${watchedColumnTheme === item.color ? "selected" : ""}`} onClick={() => { columnForm.setFieldValue("theme", item.color); columnForm.validateFields(["theme"]); }}>
+                  <span style={{ background: item.color }} />{item.name}{watchedColumnTheme === item.color && <Check size={15} />}
+                </button>
+              ))}
+            </div>
+          </Form.Item>
         </Form>
       </Modal>
 
@@ -371,7 +671,7 @@ function FlowEditor() {
         <Form form={nodeForm} layout="vertical" requiredMark="optional" className="modal-form">
           <Form.Item label="标签">
             <Flex gap={8}>
-              <Form.Item name="labelId" noStyle><Select allowClear placeholder="从标签库选择" className="grow" options={labels.map((item) => ({ value: item.id, label: <Tag color={item.color}>{item.name}</Tag> }))} /></Form.Item>
+              <Form.Item name="labelIds" noStyle><Select mode="multiple" allowClear maxTagCount="responsive" placeholder="从标签库选择，可多选" className="grow" options={labels.map((item) => ({ value: item.id, label: item.name }))} optionRender={(option) => { const label = labels.find((item) => item.id === option.value); return label ? <Tag color={label.color}>{label.name}</Tag> : option.label; }} /></Form.Item>
               <Button icon={<Library size={15} />} onClick={() => setLibraryOpen(true)}>管理</Button>
             </Flex>
           </Form.Item>

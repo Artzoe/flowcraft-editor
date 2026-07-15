@@ -20,6 +20,7 @@ import {
   Tag,
   Tooltip,
   Typography,
+  Upload,
 } from "antd";
 import type { MenuProps } from "antd";
 import {
@@ -30,23 +31,31 @@ import {
   Check,
   ChevronDown,
   CircleHelp,
+  Copy,
   Download,
   Ellipsis,
+  Eye,
+  FileText,
   History,
   Layers3,
   Library,
+  LockKeyhole,
+  LogOut,
   Pencil,
   Plus,
   RotateCcw,
   Save,
+  Share2,
   Sparkles,
   Trash2,
+  UploadCloud,
 } from "lucide-react";
 import { toPng } from "html-to-image";
 
 type ThemeColor = { name: string; color: string; soft: string };
 type Label = { id: string; name: string; color: string };
-type NodeItem = { id: string; labelIds?: string[]; title: string; subtitle?: string };
+type Attachment = { id: string; name: string; type: string; size: number; dataUrl: string };
+type NodeItem = { id: string; labelIds?: string[]; title: string; subtitle?: string; attachments?: Attachment[] };
 type ColumnItem = { id: string; title: string; subtitle?: string; theme: string; nodes: NodeItem[] };
 type FlowMeta = { title: string; subtitle?: string };
 type VersionSnapshot = {
@@ -121,8 +130,38 @@ const initialColumns: ColumnItem[] = [
 const initialMeta: FlowMeta = { title: "产品设计交付流程", subtitle: "从需求洞察到稳定上线的协作路径" };
 const LEGACY_VERSION_STORAGE_KEY = "flowcraft-version-history";
 const WORKSPACE_STORAGE_KEY = "flowcraft-multi-flow-workspace";
+const AUTH_SESSION_KEY = "flowcraft-authenticated";
+const SHARE_PREFIX = "#share=";
+const MAX_FILE_SIZE = 1024 * 1024;
+const MAX_SHARE_LENGTH = 1_800_000;
+const EDITOR_ACCOUNT = "flowcraft";
+const EDITOR_PASSWORD_DIGEST = "0139ac6fa1fb1ec90bc15fe5eb13421f32579bce849ab697aa3ef3b77823ae17";
 const uid = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
+const sha256 = async (value: string) => {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+};
+const encodeShare = (value: unknown) => {
+  const bytes = new TextEncoder().encode(JSON.stringify(value));
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += 8192) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + 8192));
+  }
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
+};
+const decodeShare = (value: string) => {
+  const normalized = value.replaceAll("-", "+").replaceAll("_", "/");
+  const binary = atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "="));
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  return JSON.parse(new TextDecoder().decode(bytes)) as Pick<FlowDocument, "id" | "meta" | "columns" | "labels" | "currentVersion">;
+};
+const fileToAttachment = (file: File) => new Promise<Attachment>((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve({ id: uid("file"), name: file.name, type: file.type || "application/octet-stream", size: file.size, dataUrl: String(reader.result) });
+  reader.onerror = () => reject(reader.error);
+  reader.readAsDataURL(file);
+});
 const createFlowDocument = (meta: FlowMeta, columns: ColumnItem[], labels: Label[]): FlowDocument => {
   const version: VersionSnapshot = {
     id: uid("version"),
@@ -154,13 +193,19 @@ function FlowEditor() {
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [versionOpen, setVersionOpen] = useState(false);
   const [newFlowOpen, setNewFlowOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareLink, setShareLink] = useState("");
   const [versions, setVersions] = useState<VersionSnapshot[]>([]);
   const [currentVersion, setCurrentVersion] = useState("v1.0.0");
   const [flowDocs, setFlowDocs] = useState<FlowDocument[]>([]);
   const [activeFlowId, setActiveFlowId] = useState("");
   const [workspaceReady, setWorkspaceReady] = useState(false);
+  const [authReady, setAuthReady] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [shareMode, setShareMode] = useState(false);
   const [editingColumnId, setEditingColumnId] = useState<string>();
   const [editingNode, setEditingNode] = useState<{ columnId: string; nodeId?: string }>();
+  const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
   const [view, setView] = useState<"编辑视图" | "展示视图">("编辑视图");
   const [exporting, setExporting] = useState(false);
   const [metaForm] = Form.useForm();
@@ -168,10 +213,39 @@ function FlowEditor() {
   const [nodeForm] = Form.useForm();
   const [tagForm] = Form.useForm();
   const [newFlowForm] = Form.useForm();
+  const [loginForm] = Form.useForm();
   const watchedColumnTheme = Form.useWatch("theme", columnForm);
   const canvasRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (window.location.hash.startsWith(SHARE_PREFIX)) {
+      try {
+        const shared = decodeShare(window.location.hash.slice(SHARE_PREFIX.length));
+        const sharedDocument: FlowDocument = {
+          ...shared,
+          createdAt: new Date().toISOString(),
+          versions: [],
+        };
+        setShareMode(true);
+        setIsAuthenticated(false);
+        setFlowDocs([sharedDocument]);
+        setActiveFlowId(sharedDocument.id);
+        setMeta(clone(sharedDocument.meta));
+        setColumns(clone(sharedDocument.columns));
+        setLabels(clone(sharedDocument.labels));
+        setVersions([]);
+        setCurrentVersion(sharedDocument.currentVersion || "分享快照");
+        setView("展示视图");
+        setWorkspaceReady(true);
+        setAuthReady(true);
+        return;
+      } catch {
+        window.history.replaceState(null, "", window.location.pathname + window.location.search);
+      }
+    }
+
+    setIsAuthenticated(window.sessionStorage.getItem(AUTH_SESSION_KEY) === "true");
+    setAuthReady(true);
     let initialDocument: FlowDocument | undefined;
     let initialDocuments: FlowDocument[] = [];
     let initialActiveId = "";
@@ -232,7 +306,7 @@ function FlowEditor() {
   }, []);
 
   useEffect(() => {
-    if (!workspaceReady || !activeFlowId || !flowDocs.length) return;
+    if (shareMode || !workspaceReady || !activeFlowId || !flowDocs.length) return;
     setFlowDocs((items) => {
       const next = items.map((item) => item.id === activeFlowId ? {
         ...item,
@@ -249,14 +323,71 @@ function FlowEditor() {
       }
       return next;
     });
-  }, [workspaceReady, activeFlowId, meta, columns, labels, versions, currentVersion]);
+  }, [shareMode, workspaceReady, activeFlowId, meta, columns, labels, versions, currentVersion]);
 
-  const editMode = view === "编辑视图";
+  const editMode = isAuthenticated && !shareMode && view === "编辑视图";
   const columnTrackWidth = columns.length
     ? columns.length * 318 + Math.max(0, columns.length - 1) * 62
     : 636;
   const exportWidth = Math.max(720, columnTrackWidth + 84);
   const displayWidth = exportWidth + (editMode && columns.length ? 242 : 0);
+
+  const login = async () => {
+    try {
+      const values = await loginForm.validateFields();
+      const passwordDigest = await sha256(String(values.password));
+      if (values.username !== EDITOR_ACCOUNT || passwordDigest !== EDITOR_PASSWORD_DIGEST) {
+        message.error("账号或密码错误");
+        return;
+      }
+      window.sessionStorage.setItem(AUTH_SESSION_KEY, "true");
+      setIsAuthenticated(true);
+      message.success("登录成功");
+    } catch {
+      // Ant Design displays field validation messages.
+    }
+  };
+
+  const logout = () => {
+    window.sessionStorage.removeItem(AUTH_SESSION_KEY);
+    setIsAuthenticated(false);
+    setView("编辑视图");
+  };
+
+  const shareCurrentFlow = async () => {
+    try {
+      const payload = encodeShare({ id: activeFlowId, meta, columns, labels, currentVersion });
+      const link = `${window.location.origin}${window.location.pathname}${SHARE_PREFIX}${payload}`;
+      if (link.length > MAX_SHARE_LENGTH) {
+        message.error("附件体积过大，无法生成稳定的分享链接，请移除较大的附件后重试");
+        return;
+      }
+      setShareLink(link);
+      setShareOpen(true);
+      await navigator.clipboard?.writeText(link);
+      message.success("只读分享链接已复制");
+    } catch {
+      message.error("分享链接生成失败");
+    }
+  };
+
+  const copyShareLink = async () => {
+    await navigator.clipboard.writeText(shareLink);
+    message.success("链接已复制");
+  };
+
+  const addAttachment = async (file: File) => {
+    if (file.size > MAX_FILE_SIZE) {
+      message.error(`${file.name} 超过 1MB。当前静态版为保证分享链接可用，单个文件不能超过 1MB`);
+      return;
+    }
+    try {
+      const attachment = await fileToAttachment(file);
+      setPendingAttachments((items) => [...items, attachment]);
+    } catch {
+      message.error(`${file.name} 读取失败`);
+    }
+  };
 
   const switchFlow = (flowId: string) => {
     const document = flowDocs.find((item) => item.id === flowId);
@@ -387,11 +518,12 @@ function FlowEditor() {
   const openNode = (columnId: string, node?: NodeItem) => {
     setEditingNode({ columnId, nodeId: node?.id });
     nodeForm.setFieldsValue({ labelIds: node?.labelIds ?? [], title: node?.title, subtitle: node?.subtitle });
+    setPendingAttachments(clone(node?.attachments ?? []));
     setNodeOpen(true);
   };
 
   const saveNode = async () => {
-    const values = await nodeForm.validateFields();
+    const values = { ...(await nodeForm.validateFields()), attachments: clone(pendingAttachments) };
     if (!editingNode) return;
     setColumns((items) => items.map((column) => {
       if (column.id !== editingNode.columnId) return column;
@@ -479,36 +611,75 @@ function FlowEditor() {
     ],
   });
 
+  if (!authReady) {
+    return <div className="login-screen"><div className="login-loading"><Layers3 size={28} />正在打开 Flowcraft…</div></div>;
+  }
+
+  if (!isAuthenticated && !shareMode) {
+    return (
+      <div className="login-screen">
+        <div className="login-card">
+          <div className="login-brand"><span className="brand-mark"><Layers3 size={21} /></span><span>Flowcraft</span></div>
+          <div className="login-icon"><LockKeyhole size={25} /></div>
+          <Typography.Title level={2}>登录流程编辑器</Typography.Title>
+          <Typography.Text type="secondary">登录后可创建、编辑和管理全部流程图。</Typography.Text>
+          <Form form={loginForm} layout="vertical" onFinish={login} className="login-form">
+            <Form.Item name="username" label="账号" rules={[{ required: true, message: "请输入账号" }]}>
+              <Input size="large" autoComplete="username" placeholder="请输入账号" />
+            </Form.Item>
+            <Form.Item name="password" label="密码" rules={[{ required: true, message: "请输入密码" }]}>
+              <Input.Password size="large" autoComplete="current-password" placeholder="请输入密码" />
+            </Form.Item>
+            <Button type="primary" size="large" htmlType="submit" block>登录</Button>
+          </Form>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="app-shell" style={{ "--theme": themes[0].color, "--theme-soft": themes[0].soft } as React.CSSProperties}>
-      <header className="topbar">
-        <div className="brand-zone">
-          <div className="brand"><span className="brand-mark"><Layers3 size={19} /></span><span>Flowcraft</span></div>
-          <div className="flow-switcher">
-            {workspaceReady ? (
-              <Select
-                value={activeFlowId || undefined}
-                onChange={switchFlow}
-                className="flow-select"
-                placeholder="选择流程"
-                options={flowDocs.map((item) => ({ value: item.id, label: item.meta.title }))}
-              />
-            ) : <Button className="flow-select" loading />}
-            <Tooltip title="新建流程"><Button icon={<Plus size={16} />} onClick={openNewFlow} aria-label="新建流程" /></Tooltip>
-            <Popconfirm title="删除当前流程？" description="该流程及其版本记录将被删除" okText="删除" cancelText="取消" disabled={flowDocs.length <= 1} onConfirm={deleteCurrentFlow}>
-              <Tooltip title={flowDocs.length <= 1 ? "至少保留一份流程" : "删除当前流程"}><Button danger disabled={flowDocs.length <= 1} icon={<Trash2 size={15} />} aria-label="删除当前流程" /></Tooltip>
-            </Popconfirm>
-          </div>
+      <aside className="sidebar">
+        <div className="sidebar-brand"><span className="brand-mark"><Layers3 size={19} /></span><span>Flowcraft</span></div>
+        <div className="sidebar-head">
+          <span>流程图列表</span>
+          {!shareMode && <Tooltip title="新建流程"><Button type="text" size="small" icon={<Plus size={16} />} onClick={openNewFlow} aria-label="新建流程" /></Tooltip>}
         </div>
-        <div className="toolbar-center"><Segmented value={view} onChange={setView} options={["编辑视图", "展示视图"]} /></div>
-        <Space size={10}>
-          <Button className="version-button" icon={<History size={16} />} onClick={() => setVersionOpen(true)}>{currentVersion}</Button>
-          <Tooltip title="编辑流程信息"><Button icon={<Pencil size={16} />} onClick={openMeta}>流程设置</Button></Tooltip>
-          <Button type="primary" icon={<Download size={16} />} loading={exporting} onClick={exportPng}>导出 PNG</Button>
-        </Space>
-      </header>
+        <nav className="flow-nav">
+          {flowDocs.map((item) => (
+            <button key={item.id} type="button" className={`flow-nav-item ${item.id === activeFlowId ? "active" : ""}`} onClick={() => !shareMode && switchFlow(item.id)}>
+              <span className="flow-nav-icon"><Layers3 size={15} /></span>
+              <span className="flow-nav-copy"><strong>{item.meta.title}</strong><small>{item.columns.length} 个流程阶段</small></span>
+              {item.id === activeFlowId && <span className="flow-nav-dot" />}
+            </button>
+          ))}
+        </nav>
+        <div className="sidebar-foot">
+          {shareMode ? <div className="readonly-badge"><Eye size={15} />只读分享页面</div> : (
+            <Popconfirm title="删除当前流程？" description="该流程及其版本记录将被删除" okText="删除" cancelText="取消" disabled={flowDocs.length <= 1} onConfirm={deleteCurrentFlow}>
+              <Button danger type="text" block disabled={flowDocs.length <= 1} icon={<Trash2 size={15} />}>删除当前流程</Button>
+            </Popconfirm>
+          )}
+        </div>
+      </aside>
 
-      <main className="workspace">
+      <div className="app-main">
+        <header className="topbar">
+          <div className="topbar-title">
+            <strong>{meta.title}</strong>
+            {shareMode && <Tag color="blue" icon={<Eye size={12} />}>只读预览</Tag>}
+          </div>
+          {!shareMode && <div className="toolbar-center"><Segmented value={view} onChange={setView} options={["编辑视图", "展示视图"]} /></div>}
+          <Space size={8} className="toolbar-actions">
+            {!shareMode && <Button icon={<Share2 size={16} />} onClick={shareCurrentFlow}>分享</Button>}
+            {editMode && <Button className="version-button" icon={<History size={16} />} onClick={() => setVersionOpen(true)}>{currentVersion}</Button>}
+            {editMode && <Tooltip title="编辑流程信息"><Button icon={<Pencil size={16} />} onClick={openMeta}>流程设置</Button></Tooltip>}
+            <Button type="primary" icon={<Download size={16} />} loading={exporting} onClick={exportPng}>导出 PNG</Button>
+            {!shareMode && <Tooltip title="退出登录"><Button icon={<LogOut size={16} />} onClick={logout} aria-label="退出登录" /></Tooltip>}
+          </Space>
+        </header>
+
+        <main className="workspace">
         <div className="workspace-head">
           <div>
             <div className="eyebrow"><Sparkles size={14} /> FLOW EDITOR</div>
@@ -564,9 +735,6 @@ function FlowEditor() {
                             <div className="node-sequence" key={node.id}>
                               <article className="node-card">
                                 <div className="node-topline">
-                                  <div className="node-tags">
-                                    {nodeLabels.map((label) => <Tag key={label.id} color={label.color}>{label.name}</Tag>)}
-                                  </div>
                                   {editMode && (
                                     <Space size={0} data-export-hide="true" className="node-actions">
                                       <Tooltip title="上移"><Button type="text" size="small" disabled={nodeIndex === 0} icon={<ArrowUp size={14} />} onClick={() => moveNode(column.id, node.id, -1)} /></Tooltip>
@@ -580,6 +748,20 @@ function FlowEditor() {
                                 </div>
                                 <h3>{node.title}</h3>
                                 {node.subtitle && <p>{node.subtitle}</p>}
+                                {!!node.attachments?.length && (
+                                  <div className="node-files">
+                                    {node.attachments.map((file) => (
+                                      <a key={file.id} href={file.dataUrl} download={file.name} title={file.name}>
+                                        <FileText size={13} /><span>{file.name}</span>
+                                      </a>
+                                    ))}
+                                  </div>
+                                )}
+                                {!!nodeLabels.length && (
+                                  <div className="node-tags">
+                                    {nodeLabels.map((label) => <Tag key={label.id} color={label.color}>{label.name}</Tag>)}
+                                  </div>
+                                )}
                               </article>
                               {nodeIndex < column.nodes.length - 1 && <div className="node-flow-arrow"><ChevronDown size={15} /></div>}
                             </div>
@@ -602,8 +784,9 @@ function FlowEditor() {
             )}
           </div>
         </section>
-        <div className="tipline"><CircleHelp size={15} /> 提示：使用节点右上角按钮调整顺序；切换到展示视图可隐藏全部编辑控件。</div>
-      </main>
+          <div className="tipline"><CircleHelp size={15} /> {shareMode ? "这是只读分享页面，内容不可编辑。" : "提示：使用节点右上角按钮调整顺序；切换到展示视图可隐藏全部编辑控件。"}</div>
+        </main>
+      </div>
 
       <Modal title="新建流程" open={newFlowOpen} onCancel={() => setNewFlowOpen(false)} onOk={createNewFlow} okText="创建" cancelText="取消" width={500}>
         <Form form={newFlowForm} layout="vertical" requiredMark="optional" className="modal-form">
@@ -669,15 +852,44 @@ function FlowEditor() {
 
       <Modal title={editingNode?.nodeId ? "编辑子节点" : "添加子节点"} open={nodeOpen} onCancel={() => setNodeOpen(false)} onOk={saveNode} okText={editingNode?.nodeId ? "保存" : "添加"} cancelText="取消" width={500}>
         <Form form={nodeForm} layout="vertical" requiredMark="optional" className="modal-form">
+          <Form.Item name="title" label="标题" rules={[{ required: true, message: "请输入子节点标题" }]}><Input placeholder="例如：高保真原型" /></Form.Item>
+          <Form.Item name="subtitle" label="副标题"><Input.TextArea placeholder="补充说明（选填）" autoSize={{ minRows: 2, maxRows: 4 }} /></Form.Item>
+          <Form.Item label="上传文件" extra="支持 PNG、Word、PPT、PDF、视频和音频等格式，可上传多份；静态分享版单个文件限 1MB。">
+            <Upload.Dragger
+              multiple
+              showUploadList={false}
+              accept="image/png,.doc,.docx,.ppt,.pptx,.pdf,video/*,audio/*"
+              beforeUpload={(file) => { void addAttachment(file); return Upload.LIST_IGNORE; }}
+            >
+              <p className="ant-upload-drag-icon"><UploadCloud size={28} /></p>
+              <p className="ant-upload-text">点击或拖拽文件到这里</p>
+            </Upload.Dragger>
+            {!!pendingAttachments.length && (
+              <div className="attachment-list">
+                {pendingAttachments.map((file) => (
+                  <div className="attachment-row" key={file.id}>
+                    <FileText size={15} /><span>{file.name}</span><small>{Math.max(1, Math.round(file.size / 1024))} KB</small>
+                    <Button type="text" danger size="small" icon={<Trash2 size={14} />} onClick={() => setPendingAttachments((items) => items.filter((item) => item.id !== file.id))} aria-label={`删除 ${file.name}`} />
+                  </div>
+                ))}
+              </div>
+            )}
+          </Form.Item>
           <Form.Item label="标签">
             <Flex gap={8}>
               <Form.Item name="labelIds" noStyle><Select mode="multiple" allowClear maxTagCount="responsive" placeholder="从标签库选择，可多选" className="grow" options={labels.map((item) => ({ value: item.id, label: item.name }))} optionRender={(option) => { const label = labels.find((item) => item.id === option.value); return label ? <Tag color={label.color}>{label.name}</Tag> : option.label; }} /></Form.Item>
               <Button icon={<Library size={15} />} onClick={() => setLibraryOpen(true)}>管理</Button>
             </Flex>
           </Form.Item>
-          <Form.Item name="title" label="标题" rules={[{ required: true, message: "请输入子节点标题" }]}><Input placeholder="例如：高保真原型" /></Form.Item>
-          <Form.Item name="subtitle" label="副标题"><Input.TextArea placeholder="补充说明（选填）" autoSize={{ minRows: 2, maxRows: 4 }} /></Form.Item>
         </Form>
+      </Modal>
+
+      <Modal title="分享只读流程" open={shareOpen} onCancel={() => setShareOpen(false)} footer={<Button type="primary" icon={<Copy size={15} />} onClick={copyShareLink}>复制链接</Button>} width={620}>
+        <div className="share-panel">
+          <div className="share-icon"><Share2 size={20} /></div>
+          <div><Typography.Text strong>任何获得链接的人都可以预览</Typography.Text><Typography.Paragraph type="secondary">分享页面不会显示编辑、新增或删除控件，链接内容是生成时的流程快照。</Typography.Paragraph></div>
+        </div>
+        <Input.TextArea value={shareLink} readOnly autoSize={{ minRows: 3, maxRows: 5 }} onFocus={(event) => event.currentTarget.select()} />
       </Modal>
 
       <Modal title="标签库" open={libraryOpen} onCancel={() => setLibraryOpen(false)} footer={<Button type="primary" onClick={() => setLibraryOpen(false)}>完成</Button>} width={560}>

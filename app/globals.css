@@ -61,6 +61,8 @@ button, input, textarea { font: inherit; }
 .node-flow-arrow { height: 25px; display: grid; place-items: center; color: #a3abb8; }
 .node-card { padding: 14px; background: #fbfcfe; border: 1px solid #e8ebf1; border-left: 2px solid var(--column-theme); border-radius: 10px; transition: .18s ease; }
 .node-card:hover { border-color: color-mix(in srgb, var(--column-theme) 34%, #e8ebf1); box-shadow: 0 5px 16px rgba(34,44,67,.07); transform: translateY(-1px); }
+.node-card.previewable { cursor: pointer; }
+.node-card.previewable:focus-visible { outline: 3px solid color-mix(in srgb, var(--column-theme) 28%, transparent); outline-offset: 2px; }
 .node-topline { min-height: 24px; display: flex; align-items: flex-start; justify-content: flex-end; gap: 5px; }
 .node-topline:empty { display: none; }
 .node-topline .ant-tag { margin: 0; font-size: 10px; line-height: 20px; border-radius: 5px; }
@@ -71,6 +73,8 @@ button, input, textarea { font: inherit; }
 .node-actions .ant-btn { width: 25px; padding: 0; }
 .node-card h3 { margin: 8px 0 3px; color: #273147; font-size: 14px; line-height: 1.35; }
 .node-card p { margin: 0; color: #7b8495; font-size: 11px; line-height: 1.55; }
+.node-detail-preview { margin-top: 8px !important; padding-top: 8px; color: #657086 !important; border-top: 1px dashed #e3e7ee; }
+.node-detail-preview.single-line { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .node-files { margin-top: 10px; display: flex; flex-direction: column; gap: 5px; }
 .node-files a { min-width: 0; padding: 5px 7px; display: flex; align-items: center; gap: 6px; color: #59657a; background: #f0f3f8; border-radius: 6px; font-size: 10px; text-decoration: none; }
 .node-files a:hover { color: #2f54eb; background: #e9efff; }
@@ -120,6 +124,18 @@ button, input, textarea { font: inherit; }
 .share-panel { margin: 16px 0; padding: 14px; display: flex; align-items: flex-start; gap: 12px; background: #f6f8ff; border: 1px solid #e2e8ff; border-radius: 10px; }
 .share-icon { width: 36px; height: 36px; display: grid; place-items: center; flex: none; color: #2f54eb; background: #e7edff; border-radius: 9px; }
 .share-panel .ant-typography { margin-bottom: 0; }
+.node-preview-modal { padding-top: 14px; }
+.node-preview-heading { padding: 15px; display: flex; align-items: flex-start; gap: 12px; background: #f6f8ff; border: 1px solid #e2e8ff; border-radius: 12px; }
+.node-preview-heading h3.ant-typography { margin: 0 0 4px; color: #202a40; font-size: 20px; }
+.node-preview-section { margin-top: 20px; }
+.preview-label { display: block; margin-bottom: 8px; color: #7b8496; font-size: 12px; font-weight: 700; }
+.node-preview-section .ant-typography { white-space: pre-wrap; }
+.preview-files { display: flex; flex-direction: column; gap: 7px; }
+.preview-files a { min-height: 44px; padding: 8px 11px; display: flex; align-items: center; gap: 8px; color: #48556c; background: #f7f8fa; border: 1px solid #e7eaf0; border-radius: 9px; text-decoration: none; }
+.preview-files a:hover { color: #2f54eb; border-color: #cbd6ff; background: #f4f7ff; }
+.preview-files span { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.preview-files small { color: #9099a9; white-space: nowrap; }
+.preview-tags .ant-tag { margin-bottom: 6px; }
 .login-screen { min-height: 100vh; padding: 24px; display: grid; place-items: center; background: radial-gradient(circle at 15% 10%, #e7edff 0, transparent 34%), radial-gradient(circle at 85% 80%, #ecf8f5 0, transparent 28%), #f4f6fa; }
 .login-card { width: min(420px, 100%); padding: 36px; background: rgba(255,255,255,.95); border: 1px solid #e5e9f1; border-radius: 20px; box-shadow: 0 24px 70px rgba(34,45,72,.13); }
 .login-brand { display: flex; align-items: center; gap: 10px; color: #172033; font-size: 17px; font-weight: 760; }

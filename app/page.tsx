@@ -55,7 +55,7 @@ import { toPng } from "html-to-image";
 type ThemeColor = { name: string; color: string; soft: string };
 type Label = { id: string; name: string; color: string };
 type Attachment = { id: string; name: string; type: string; size: number; dataUrl: string };
-type NodeItem = { id: string; labelIds?: string[]; title: string; subtitle?: string; attachments?: Attachment[] };
+type NodeItem = { id: string; labelIds?: string[]; title: string; subtitle?: string; detail?: string; attachments?: Attachment[] };
 type ColumnItem = { id: string; title: string; subtitle?: string; theme: string; nodes: NodeItem[] };
 type FlowMeta = { title: string; subtitle?: string };
 type VersionSnapshot = {
@@ -205,6 +205,7 @@ function FlowEditor() {
   const [shareMode, setShareMode] = useState(false);
   const [editingColumnId, setEditingColumnId] = useState<string>();
   const [editingNode, setEditingNode] = useState<{ columnId: string; nodeId?: string }>();
+  const [previewNode, setPreviewNode] = useState<{ node: NodeItem; labels: Label[] }>();
   const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
   const [view, setView] = useState<"编辑视图" | "展示视图">("编辑视图");
   const [exporting, setExporting] = useState(false);
@@ -517,7 +518,7 @@ function FlowEditor() {
 
   const openNode = (columnId: string, node?: NodeItem) => {
     setEditingNode({ columnId, nodeId: node?.id });
-    nodeForm.setFieldsValue({ labelIds: node?.labelIds ?? [], title: node?.title, subtitle: node?.subtitle });
+    nodeForm.setFieldsValue({ labelIds: node?.labelIds ?? [], title: node?.title, subtitle: node?.subtitle, detail: node?.detail });
     setPendingAttachments(clone(node?.attachments ?? []));
     setNodeOpen(true);
   };
@@ -733,7 +734,18 @@ function FlowEditor() {
                           const nodeLabels = labels.filter((item) => node.labelIds?.includes(item.id));
                           return (
                             <div className="node-sequence" key={node.id}>
-                              <article className="node-card">
+                              <article
+                                className={`node-card ${!editMode ? "previewable" : ""}`}
+                                role={!editMode ? "button" : undefined}
+                                tabIndex={!editMode ? 0 : undefined}
+                                onClick={() => !editMode && setPreviewNode({ node, labels: nodeLabels })}
+                                onKeyDown={(event) => {
+                                  if (!editMode && (event.key === "Enter" || event.key === " ")) {
+                                    event.preventDefault();
+                                    setPreviewNode({ node, labels: nodeLabels });
+                                  }
+                                }}
+                              >
                                 <div className="node-topline">
                                   {editMode && (
                                     <Space size={0} data-export-hide="true" className="node-actions">
@@ -748,10 +760,11 @@ function FlowEditor() {
                                 </div>
                                 <h3>{node.title}</h3>
                                 {node.subtitle && <p>{node.subtitle}</p>}
+                                {node.detail && <p className={`node-detail-preview ${editMode ? "single-line" : ""}`}>{node.detail}</p>}
                                 {!!node.attachments?.length && (
                                   <div className="node-files">
                                     {node.attachments.map((file) => (
-                                      <a key={file.id} href={file.dataUrl} download={file.name} title={file.name}>
+                                      <a key={file.id} href={file.dataUrl} download={file.name} title={file.name} onClick={(event) => event.stopPropagation()}>
                                         <FileText size={13} /><span>{file.name}</span>
                                       </a>
                                     ))}
@@ -854,6 +867,9 @@ function FlowEditor() {
         <Form form={nodeForm} layout="vertical" requiredMark="optional" className="modal-form">
           <Form.Item name="title" label="标题" rules={[{ required: true, message: "请输入子节点标题" }]}><Input placeholder="例如：高保真原型" /></Form.Item>
           <Form.Item name="subtitle" label="副标题"><Input.TextArea placeholder="补充说明（选填）" autoSize={{ minRows: 2, maxRows: 4 }} /></Form.Item>
+          <Form.Item name="detail" label="详情" rules={[{ max: 200, message: "详情最多输入 200 个字" }]}>
+            <Input.TextArea placeholder="输入节点的详细说明（选填）" autoSize={{ minRows: 3, maxRows: 6 }} showCount maxLength={200} />
+          </Form.Item>
           <Form.Item label="上传文件" extra="支持 PNG、Word、PPT、PDF、视频和音频等格式，可上传多份；静态分享版单个文件限 1MB。">
             <Upload.Dragger
               multiple
@@ -882,6 +898,42 @@ function FlowEditor() {
             </Flex>
           </Form.Item>
         </Form>
+      </Modal>
+
+      <Modal
+        title="节点详情"
+        open={!!previewNode}
+        onCancel={() => setPreviewNode(undefined)}
+        footer={<Button type="primary" onClick={() => setPreviewNode(undefined)}>关闭</Button>}
+        width={620}
+      >
+        {previewNode && (
+          <div className="node-preview-modal">
+            <div className="node-preview-heading">
+              <div className="share-icon"><Eye size={20} /></div>
+              <div><Typography.Title level={3}>{previewNode.node.title}</Typography.Title>{previewNode.node.subtitle && <Typography.Text type="secondary">{previewNode.node.subtitle}</Typography.Text>}</div>
+            </div>
+            {previewNode.node.detail && (
+              <div className="node-preview-section"><Typography.Text className="preview-label">详情</Typography.Text><Typography.Paragraph>{previewNode.node.detail}</Typography.Paragraph></div>
+            )}
+            {!!previewNode.node.attachments?.length && (
+              <div className="node-preview-section">
+                <Typography.Text className="preview-label">附件</Typography.Text>
+                <div className="preview-files">
+                  {previewNode.node.attachments.map((file) => (
+                    <a key={file.id} href={file.dataUrl} download={file.name}><FileText size={16} /><span>{file.name}</span><small>{Math.max(1, Math.round(file.size / 1024))} KB</small><Download size={14} /></a>
+                  ))}
+                </div>
+              </div>
+            )}
+            {!!previewNode.labels.length && (
+              <div className="node-preview-section preview-tags">
+                <Typography.Text className="preview-label">标签</Typography.Text>
+                <div>{previewNode.labels.map((label) => <Tag key={label.id} color={label.color}>{label.name}</Tag>)}</div>
+              </div>
+            )}
+          </div>
+        )}
       </Modal>
 
       <Modal title="分享只读流程" open={shareOpen} onCancel={() => setShareOpen(false)} footer={<Button type="primary" icon={<Copy size={15} />} onClick={copyShareLink}>复制链接</Button>} width={620}>

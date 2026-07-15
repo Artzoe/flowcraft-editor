@@ -735,12 +735,12 @@ function FlowEditor() {
                           return (
                             <div className="node-sequence" key={node.id}>
                               <article
-                                className={`node-card ${!editMode ? "previewable" : ""}`}
-                                role={!editMode ? "button" : undefined}
-                                tabIndex={!editMode ? 0 : undefined}
-                                onClick={() => !editMode && setPreviewNode({ node, labels: nodeLabels })}
+                                className="node-card previewable"
+                                role="button"
+                                tabIndex={0}
+                                onClick={() => setPreviewNode({ node, labels: nodeLabels })}
                                 onKeyDown={(event) => {
-                                  if (!editMode && (event.key === "Enter" || event.key === " ")) {
+                                  if (event.key === "Enter" || event.key === " ") {
                                     event.preventDefault();
                                     setPreviewNode({ node, labels: nodeLabels });
                                   }
@@ -748,7 +748,8 @@ function FlowEditor() {
                               >
                                 <div className="node-topline">
                                   {editMode && (
-                                    <Space size={0} data-export-hide="true" className="node-actions">
+                                    <Space size={0} data-export-hide="true" className="node-actions" onClick={(event) => event.stopPropagation()}>
+                                      <Tooltip title="查看详情"><Button type="text" size="small" icon={<Eye size={14} />} onClick={() => setPreviewNode({ node, labels: nodeLabels })} /></Tooltip>
                                       <Tooltip title="上移"><Button type="text" size="small" disabled={nodeIndex === 0} icon={<ArrowUp size={14} />} onClick={() => moveNode(column.id, node.id, -1)} /></Tooltip>
                                       <Tooltip title="下移"><Button type="text" size="small" disabled={nodeIndex === column.nodes.length - 1} icon={<ArrowDown size={14} />} onClick={() => moveNode(column.id, node.id, 1)} /></Tooltip>
                                       <Tooltip title="编辑"><Button type="text" size="small" icon={<Pencil size={14} />} onClick={() => openNode(column.id, node)} /></Tooltip>

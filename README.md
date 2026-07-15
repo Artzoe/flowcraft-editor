@@ -13,7 +13,7 @@
 - 标签库支持自定义标签名、颜色和删除
 - 支持版本号、版本快照与回档
 - 编辑和预览模式均可自适应列数导出 PNG
-- 提供在线版与可转发的单文件离线版
+- 通过 GitHub Pages 提供在线版本
 
 ## 本地运行
 
@@ -32,11 +32,11 @@ npm run dev
 # 检查应用构建
 npm run build
 
-# 生成离线 HTML 与 GitHub Pages 页面
-npm run build:standalone
+# 生成 GitHub Pages 页面
+npm run build:pages
 ```
 
-离线文件生成到 `export/Flowcraft-流程展示编辑器-离线版.html`，GitHub Pages 页面生成到 `docs/index.html`。
+GitHub Pages 页面生成到 `docs/index.html`。
 
 ## 数据说明
 

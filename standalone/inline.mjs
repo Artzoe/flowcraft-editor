@@ -2,8 +2,6 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 const buildDir = fileURLToPath(new URL("../export-build/", import.meta.url));
-const outputDir = fileURLToPath(new URL("../export/", import.meta.url));
-const outputFile = `${outputDir}/Flowcraft-流程展示编辑器-离线版.html`;
 const pagesDir = fileURLToPath(new URL("../docs/", import.meta.url));
 const pagesFile = `${pagesDir}/index.html`;
 
@@ -21,14 +19,9 @@ const shell = html
 // Classic inline scripts execute immediately, so place the bundle after #root.
 const bundled = shell.replace("</body>", () => `<script>${javascript}</script></body>`);
 
+await mkdir(pagesDir, { recursive: true });
 await Promise.all([
-  mkdir(outputDir, { recursive: true }),
-  mkdir(pagesDir, { recursive: true }),
-]);
-await Promise.all([
-  writeFile(outputFile, bundled, "utf8"),
   writeFile(pagesFile, bundled, "utf8"),
   writeFile(`${pagesDir}/.nojekyll`, "", "utf8"),
 ]);
-console.log(outputFile);
 console.log(pagesFile);

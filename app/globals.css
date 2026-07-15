@@ -98,6 +98,14 @@ button, input, textarea { font: inherit; }
 .theme-choice svg { margin-left: auto; }
 .theme-choice:hover, .theme-choice.selected { border-color: currentColor; color: #172033; background: #fafbfc; }
 .grow { flex: 1; }
+.modal-form .ant-upload-wrapper .ant-upload-drag .ant-upload-btn { padding: 24px; }
+.modal-form .ant-upload-wrapper .ant-upload-drag-container { width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+.modal-form .ant-upload-wrapper .ant-upload-drag-icon { width: 100%; margin: 0 0 10px !important; display: flex; align-items: center; justify-content: center; line-height: 1; text-align: center; }
+.modal-form .ant-upload-wrapper .ant-upload-text { width: 100%; margin: 0 !important; font-size: 14px !important; line-height: 1.5; text-align: center; }
+.modal-form .ant-select-multiple .ant-select-selector { align-items: center; }
+.modal-form .ant-select-multiple .ant-select-selection-overflow { align-items: center; gap: 4px; }
+.modal-form .ant-select-multiple .ant-select-selection-overflow-item { display: flex; align-items: center; }
+.modal-form .ant-select-multiple .ant-select-selection-item { margin-inline-end: 0; }
 .tag-creator { padding: 14px; margin-top: 18px; background: #f7f8fa; border-radius: 10px; }
 .tag-create-row { margin-top: 10px; }
 .tag-create-row .ant-form-item { margin-bottom: 0; }
@@ -135,7 +143,8 @@ button, input, textarea { font: inherit; }
 .preview-files a:hover { color: #2f54eb; border-color: #cbd6ff; background: #f4f7ff; }
 .preview-files span { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .preview-files small { color: #9099a9; white-space: nowrap; }
-.preview-tags .ant-tag { margin-bottom: 6px; }
+.preview-tags > div { display: flex; flex-wrap: wrap; gap: 4px; }
+.preview-tags .ant-tag { margin: 0; }
 .login-screen { min-height: 100vh; padding: 24px; display: grid; place-items: center; background: radial-gradient(circle at 15% 10%, #e7edff 0, transparent 34%), radial-gradient(circle at 85% 80%, #ecf8f5 0, transparent 28%), #f4f6fa; }
 .login-card { width: min(420px, 100%); padding: 36px; background: rgba(255,255,255,.95); border: 1px solid #e5e9f1; border-radius: 20px; box-shadow: 0 24px 70px rgba(34,45,72,.13); }
 .login-brand { display: flex; align-items: center; gap: 10px; color: #172033; font-size: 17px; font-weight: 760; }

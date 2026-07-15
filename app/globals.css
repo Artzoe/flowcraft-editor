@@ -40,8 +40,10 @@ button, input, textarea { font: inherit; }
 .eyebrow { display: flex; align-items: center; gap: 7px; color: var(--theme); font-size: 11px; font-weight: 750; letter-spacing: .14em; }
 .role-filter { min-width: 250px; height: 38px; padding-left: 11px; display: flex; align-items: center; gap: 7px; color: #687386; background: #fff; border: 1px solid #d9dfe8; border-radius: 10px; }
 .role-filter:focus-within { border-color: #2f54eb; box-shadow: 0 0 0 2px rgba(47,84,235,.1); }
-.role-filter .ant-select { min-width: 210px; flex: 1; }
-.role-filter .ant-select-selector { padding-inline: 0 !important; border: 0 !important; box-shadow: none !important; }
+.role-filter .ant-select { min-width: 210px; flex: 1; outline: 0 !important; box-shadow: none !important; }
+.role-filter .ant-select-selector,
+.role-filter .ant-select-focused .ant-select-selector,
+.role-filter .ant-select-open .ant-select-selector { padding-inline: 0 !important; background: transparent !important; border: 0 !important; outline: 0 !important; box-shadow: none !important; }
 .canvas-wrap { max-width: 100%; overflow-x: auto; padding: 0 0 18px; }
 .flow-canvas { min-width: 0; min-height: 620px; margin: 0 auto; padding: 42px; background: #f8f9fc; border: 1px solid #e3e7ef; border-radius: 20px; box-shadow: 0 16px 50px rgba(41,51,75,.08); }
 .flow-hero { width: 100%; display: flex; justify-content: space-between; align-items: flex-end; gap: 40px; padding: 2px 4px 32px; border-bottom: 1px solid #e3e7ef; }

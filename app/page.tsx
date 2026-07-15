@@ -957,11 +957,11 @@ function FlowEditor() {
           <Form.Item name="detail" label="详情" rules={[{ max: 200, message: "详情最多输入 200 个字" }]}>
             <Input.TextArea placeholder="输入节点的详细说明（选填）" autoSize={{ minRows: 3, maxRows: 6 }} showCount maxLength={200} />
           </Form.Item>
-          <Form.Item label="上传文件" extra="支持 PNG、Word、PPT、PDF、视频和音频等格式，可上传多份；静态分享版单个文件限 1MB。">
+          <Form.Item label="上传文件" extra="支持 PNG、Word、Excel、PPT、PDF、视频和音频等格式，可上传多份；静态分享版单个文件限 1MB。">
             <Upload.Dragger
               multiple
               showUploadList={false}
-              accept="image/png,.doc,.docx,.ppt,.pptx,.pdf,video/*,audio/*"
+              accept="image/png,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.pdf,video/*,audio/*"
               beforeUpload={(file) => { void addAttachment(file); return Upload.LIST_IGNORE; }}
             >
               <p className="ant-upload-drag-icon"><UploadCloud size={28} /></p>
